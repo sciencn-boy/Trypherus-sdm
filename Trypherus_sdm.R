@@ -10,9 +10,34 @@ library(geodata)
 library(sdm)
 library(usdm)
 library(data.table)
+library(readxl)
+library(gdata)
+library(CoordinateCleaner)
+library(spThin)
+
 setwd("E:/Trypherus")  #Setting up the working directory
-spg <- read.csv("Trypherus.csv")
-sp <- read.csv("Trypherus.csv")
+data <- read_xls("Trypherus_response.xls")
+head(data)
+cleaned_data <- clean_coordinates(data$Longitude, data$Latitude)
+
+out_dir <- "spThin_output317"  
+if (!dir.exists(out_dir)) {
+  dir.create(out_dir)  
+}
+# spThin
+set.seed(123)  
+thinned_data <- thin(
+  loc.data = data,          
+  lat.col = "Latitude",     
+  long.col = "Longitude",   
+  spec.col = "Species",     
+  thin.par = 10,           
+  reps = 100,               
+  out.dir = out_dir
+)
+best_thin <- thinned_data[[1]]
+
+spg <- best_thin
 spg <- spg[,-1]
 head(spg)
 colnames(spg)[1] <- "lon"
@@ -64,6 +89,25 @@ rf <- sdm(species~., d, methods = 'rf',replication=c('sub','boot'),
 maxent <- sdm(species~., d, methods ='maxent',replication=c('sub','boot'),
               test.percent=25,n=10,parallelSetting=list(ncore=4,method='parallel'))
 
+tune_settings <- list(
+  glm = list(),  
+  
+  gam = list(
+    k = c(3, 5, 7)  
+  ),
+  
+  rf = list(
+    mtry = c(2, 4, 6),  
+    ntree = c(500, 1000) 
+  ),
+  
+  maxent = list(
+    args = c('betamultiplier=1', 
+             'betamultiplier=2', 
+             'betamultiplier=3')
+  )
+)
+
 # predict
 p_glm <- predict(glm,bioc)
 terra::writeRaster((p_glm), filename="glm.tif",overwrite=TRUE)
@@ -75,7 +119,6 @@ p_maxent <- predict(maxent,bioc)
 terra::writeRaster((p_maxent), filename="maxent.tif",overwrite=TRUE)
 
 #---------ensemble-------------------#
-#en1 <- ensemble(m,vir,filename = "en.img",setting=list(method='weighted',stat='tss',opt=2))
 en1 <- ensemble(m,bioc,setting=list(method='weighted',stat='tss',opt=2))  #ensemble
 plot(en1)
 terra::writeRaster((en1), filename="ensemble.tif",overwrite=TRUE)
@@ -151,12 +194,6 @@ en_fu585_70 <- ensemble(m,bioc_585_70,setting=list(method='weighted',stat='tss',
 plot(en_fu585_70)
 terra::writeRaster((en_fu585_70), filename="ensemble_fu585_70.tif",overwrite=TRUE)
 
-
-#-------------#
-ch <- en2 - en1
-cl2 <- colorRampPalette(c('red','orange','white','gray','green','blue'))
-plot(ch,col=cl2(200))
-
 #-----------------------
 df <- as.data.frame(d)    
 head(df)
@@ -189,6 +226,7 @@ chp <- pa2-pa1
 plot(chp,col=c('red','gray','blue'))  
 
 #-----------------------
+gui(m) # see different plots of model evaluation results
 rcurve(m,id=7:12)  
-getVarImp(m,id=1)  
+getVarImp(m,id=1)
 plot(getVarImp(m))
